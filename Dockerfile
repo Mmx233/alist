@@ -1,9 +1,11 @@
 FROM alpine:edge as builder
 LABEL stage=go-builder
 WORKDIR /app/
+RUN apk add --no-cache bash curl gcc git go musl-dev
+COPY go.mod go.sum ./
+RUN bash build.sh prepare docker
 COPY ./ ./
-RUN apk add --no-cache bash curl gcc git go musl-dev; \
-    bash build.sh release docker
+RUN bash build.sh release docker
 
 FROM alpine:edge
 LABEL MAINTAINER="i@nn.ci"
