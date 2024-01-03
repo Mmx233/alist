@@ -19,7 +19,7 @@ jobs:
 
       - name: Build binary
         env:
-          CGO_ENABLED: 1
+          CGO_ENABLED: 0
         run: bash build.sh release docker
 
       - name: Docker meta
