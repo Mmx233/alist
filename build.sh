@@ -93,7 +93,7 @@ BuildDocker() {
   for i in "${!OS_ARCHES[@]}"; do
     os_arch=${OS_ARCHES[$i]}
     os=${os_arch%%-*}
-    arch=${os_arch%%-*}
+    arch=${os_arch##*-}
     export GOOS=$os
     export GOARCH=$arch
     go build -o ./$os/$arch/alist -ldflags="$docker_lflags" -tags=jsoniter .
