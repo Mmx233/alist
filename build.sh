@@ -93,8 +93,8 @@ BuildDocker() {
     docker_arch=${DOCKER_ARCHES[$i]}
     go_arch=${GO_ARCHES[$i]}
     export GOOS=${go_arch%%-*}
-    export GOARCH=${os_arch##*-}
-    go build -o ./${docker_arch%%-*}/${docker_arch##-*}/alist -ldflags="$ldflags --extldflags '-static'" -tags=jsoniter .
+    export GOARCH=${go_arch##*-}
+    go build -o ./${docker_arch%%-*}/${docker_arch##*-}/alist -ldflags="$ldflags --extldflags '-static'" -tags=jsoniter .
   done
 
   DOCKER_ARM_ARCHES=(linux-arm/v6 linux-arm/v7)
@@ -104,7 +104,7 @@ BuildDocker() {
   for i in "${!DOCKER_ARM_ARCHES[@]}"; do
     docker_arch=${DOCKER_ARM_ARCHES[$i]}
     export GOARM=${GO_ARM[$i]}
-    go build -o ./${docker_arch%%-*}/${docker_arch##-*}/alist -ldflags="$ldflags --extldflags '-static'" -tags=jsoniter .
+    go build -o ./${docker_arch%%-*}/${docker_arch##*-}/alist -ldflags="$ldflags --extldflags '-static'" -tags=jsoniter .
   done
 }
 
