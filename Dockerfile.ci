@@ -1,10 +1,9 @@
 FROM alpine:edge
-ARG TARGETOS
-ARG TARGETARCH
+ARG TARGETPLATFORM
 LABEL MAINTAINER="i@nn.ci"
 VOLUME /opt/alist/data/
 WORKDIR /opt/alist/
-COPY /${TARGETOS}/${TARGETARCH}/alist ./
+COPY /${TARGETPLATFORM}/alist ./
 COPY entrypoint.sh /entrypoint.sh
 RUN apk update && \
     apk upgrade --no-cache && \
