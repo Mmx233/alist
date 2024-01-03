@@ -17,19 +17,10 @@ jobs:
         with:
           go-version: 'stable'
 
-      - name: Gen Go Commands
-        id: go_build
-        uses: MultiMx/GoBuildxAction@v0.7
-        with:
-          name: alist
-          args: "-ldflags='$(bash build.sh prepare ldflags) -extldflags \"-static\"' -tags=jsoniter"
-          platform: linux/amd64,linux/arm64,linux/arm/v7,linux/386,linux/arm/v6,linux/s390x
-          target: .
-
       - name: Build binary
         env:
           CGO_ENABLED: 1
-        run: ${{ steps.go_build.outputs.commands }}
+        run: bash build.sh release docker
 
       - name: Docker meta
         id: meta

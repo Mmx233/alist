@@ -82,15 +82,30 @@ BuildDev() {
   cat md5.txt
 }
 
-PrepareDockerBuild() {
+BuildDocker() {
   echo "replace github.com/mattn/go-sqlite3 => github.com/leso-kn/go-sqlite3 v0.0.0-20230710125852-03158dc838ed" >>go.mod
   go get gorm.io/driver/sqlite@v1.4.4
   go mod download
-}
 
-BuildDocker() {
-  PrepareDockerBuild
-  go build -o ./bin/alist -ldflags="$ldflags" -tags=jsoniter .
+  DOCKER_ARCHES=(linux-amd64 linux-arm64 linux-386 linux-s390x)
+  GO_ARCHES=(linux-amd64 linux-arm64 linux-386 linux-s390x)
+  for i in "${!DOCKER_ARCHES[@]}"; do
+    docker_arch=${DOCKER_ARCHES[$i]}
+    go_arch=${GO_ARCHES[$i]}
+    export GOOS=${go_arch%%-*}
+    export GOARCH=${os_arch##*-}
+    go build -o ./${docker_arch%%-*}/${docker_arch##-*}/alist -ldflags="$ldflags --extldflags '-static'" -tags=jsoniter .
+  done
+
+  DOCKER_ARM_ARCHES=(linux-arm/v6 linux-arm/v7)
+  GO_ARM=(6 7)
+  export GOOS=linux
+  export GOARCH=arm
+  for i in "${!DOCKER_ARM_ARCHES[@]}"; do
+    docker_arch=${DOCKER_ARM_ARCHES[$i]}
+    export GOARM=${GO_ARM[$i]}
+    go build -o ./${docker_arch%%-*}/${docker_arch##-*}/alist -ldflags="$ldflags --extldflags '-static'" -tags=jsoniter .
+  done
 }
 
 BuildRelease() {
@@ -208,12 +223,6 @@ elif [ "$1" = "release" ]; then
   else
     BuildRelease
     MakeRelease "md5.txt"
-  fi
-elif [ "$1" = "prepare" ]; then
-  if [ "$2" = "docker" ]; then
-    PrepareDockerBuild
-  elif [ "$2" = "ldflags" ]; then
-    echo "$ldflags"
   fi
 else
   echo -e "Parameter error"
