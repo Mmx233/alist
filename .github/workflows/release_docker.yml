@@ -13,6 +13,24 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - uses: actions/setup-go@v4
+        with:
+          go-version: 'stable'
+
+      - name: Gen Go Commands
+        id: go_build
+        uses: MultiMx/GoBuildxAction@v0.7
+        with:
+          name: alist
+          args: "-ldflags='$(bash build.sh prepare ldflags) -extldflags \"-static\"' -tags=jsoniter"
+          platform: linux/amd64,linux/arm64,linux/arm/v7,linux/386,linux/arm/v6,linux/s390x
+          target: .
+
+      - name: Build binary
+        env:
+          CGO_ENABLED: 1
+        run: ${{ steps.go_build.outputs.commands }}
+
       - name: Docker meta
         id: meta
         uses: docker/metadata-action@v5
@@ -36,6 +54,7 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: .
+          file: Dockerfile.ci
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}

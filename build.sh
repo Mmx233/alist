@@ -12,9 +12,6 @@ else
   webVersion=$(wget -qO- -t1 -T2 "https://api.github.com/repos/alist-org/alist-web/releases/latest" | grep "tag_name" | head -n 1 | awk -F ":" '{print $2}' | sed 's/\"//g;s/,//g;s/ //g')
 fi
 
-echo "backend version: $version"
-echo "frontend version: $webVersion"
-
 ldflags="\
 -w -s \
 -X 'github.com/alist-org/alist/v3/internal/conf.BuiltAt=$builtAt' \
@@ -92,6 +89,7 @@ PrepareDockerBuild() {
 }
 
 BuildDocker() {
+  PrepareDockerBuild
   go build -o ./bin/alist -ldflags="$ldflags" -tags=jsoniter .
 }
 
@@ -212,9 +210,11 @@ elif [ "$1" = "release" ]; then
     MakeRelease "md5.txt"
   fi
 elif [ "$1" = "prepare" ]; then
-    if [ "$2" = "docker" ]; then
-        PrepareDockerBuild
-    fi
+  if [ "$2" = "docker" ]; then
+    PrepareDockerBuild
+  elif [ "$2" = "ldflags" ]; then
+    echo "$ldflags"
+  fi
 else
   echo -e "Parameter error"
 fi
