@@ -85,9 +85,13 @@ BuildDev() {
   cat md5.txt
 }
 
-BuildDocker() {
+PrepareDockerBuild() {
   echo "replace github.com/mattn/go-sqlite3 => github.com/leso-kn/go-sqlite3 v0.0.0-20230710125852-03158dc838ed" >>go.mod
   go get gorm.io/driver/sqlite@v1.4.4
+  go mod download
+}
+
+BuildDocker() {
   go build -o ./bin/alist -ldflags="$ldflags" -tags=jsoniter .
 }
 
@@ -207,6 +211,10 @@ elif [ "$1" = "release" ]; then
     BuildRelease
     MakeRelease "md5.txt"
   fi
+elif [ "$1" = "prepare" ]; then
+    if [ "$2" = "docker" ]; then
+        PrepareDockerBuild
+    fi
 else
   echo -e "Parameter error"
 fi
