@@ -134,7 +134,9 @@ BuildDocker() {
   export GOARCH=arm
   for i in "${!DOCKER_ARM_ARCHES[@]}"; do
     docker_arch=${DOCKER_ARM_ARCHES[$i]}
+    cgo_cc=${CGO_ARGS[$i]}
     export GOARM=${GO_ARM[$i]}
+    export CC=${cgo_cc}
     go build -o ./${docker_arch%%-*}/${docker_arch##*-}/alist -ldflags="$docker_lflags" -tags=jsoniter .
   done
 }
