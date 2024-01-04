@@ -18,8 +18,6 @@ jobs:
           go-version: 'stable'
 
       - name: Build binary
-        env:
-          CGO_ENABLED: 0
         run: bash build.sh release docker
 
       - name: Docker meta

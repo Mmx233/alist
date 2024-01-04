@@ -82,24 +82,53 @@ BuildDev() {
   cat md5.txt
 }
 
-BuildDocker() {
-  docker_lflags="--extldflags '-static' $ldflags"
+PrepareLinuxMusl() {
+  BASE="https://musl.nn.ci/"
+  FILES=(x86_64-linux-musl-cross aarch64-linux-musl-cross mips-linux-musl-cross mips64-linux-musl-cross mips64el-linux-musl-cross mipsel-linux-musl-cross powerpc64le-linux-musl-cross s390x-linux-musl-cross)
+  for i in "${FILES[@]}"; do
+    url="${BASE}${i}.tgz"
+    curl -L -o "${i}.tgz" "${url}"
+    sudo tar xf "${i}.tgz" --strip-components 1 -C /usr/local
+    rm -f "${i}.tgz"
+  done
+}
 
+PrepareBuildDocker() {
   echo "replace github.com/mattn/go-sqlite3 => github.com/leso-kn/go-sqlite3 v0.0.0-20230710125852-03158dc838ed" >>go.mod
   go get gorm.io/driver/sqlite@v1.4.4
   go mod download
+}
+
+BuildDocker() {
+  PrepareBuildDocker
+
+  BASE="https://musl.nn.ci/"
+  FILES=(x86_64-linux-musl-cross aarch64-linux-musl-cross i486-linux-musl-cross s390x-linux-musl-cross armv6-linux-musleabihf-cross armv7l-linux-musleabihf-cross)
+  for i in "${FILES[@]}"; do
+    url="${BASE}${i}.tgz"
+    curl -L -o "${i}.tgz" "${url}"
+    sudo tar xf "${i}.tgz" --strip-components 1 -C /usr/local
+    rm -f "${i}.tgz"
+  done
+
+  docker_lflags="--extldflags '-static -fpic' $ldflags"
+  export CGO_ENABLED=1
 
   OS_ARCHES=(linux-amd64 linux-arm64 linux-386 linux-s390x)
+  CGO_ARGS=(x86_64-linux-musl-gcc aarch64-linux-musl-gcc i486-linux-musl-cross s390x-linux-musl-gcc)
   for i in "${!OS_ARCHES[@]}"; do
     os_arch=${OS_ARCHES[$i]}
+    cgo_cc=${CGO_ARGS[$i]}
     os=${os_arch%%-*}
     arch=${os_arch##*-}
     export GOOS=$os
     export GOARCH=$arch
+    export CC=${cgo_cc}
     go build -o ./$os/$arch/alist -ldflags="$docker_lflags" -tags=jsoniter .
   done
 
   DOCKER_ARM_ARCHES=(linux-arm/v6 linux-arm/v7)
+  CGO_ARGS=(armv6-linux-musleabihf armv7l-linux-musleabihf)
   GO_ARM=(6 7)
   export GOOS=linux
   export GOARCH=arm
@@ -123,17 +152,11 @@ BuildRelease() {
 }
 
 BuildReleaseLinuxMusl() {
+  PrepareLinuxMusl
+
   rm -rf .git/
   mkdir -p "build"
   muslflags="--extldflags '-static -fpic' $ldflags"
-  BASE="https://musl.nn.ci/"
-  FILES=(x86_64-linux-musl-cross aarch64-linux-musl-cross mips-linux-musl-cross mips64-linux-musl-cross mips64el-linux-musl-cross mipsel-linux-musl-cross powerpc64le-linux-musl-cross s390x-linux-musl-cross)
-  for i in "${FILES[@]}"; do
-    url="${BASE}${i}.tgz"
-    curl -L -o "${i}.tgz" "${url}"
-    sudo tar xf "${i}.tgz" --strip-components 1 -C /usr/local
-    rm -f "${i}.tgz"
-  done
   OS_ARCHES=(linux-musl-amd64 linux-musl-arm64 linux-musl-mips linux-musl-mips64 linux-musl-mips64le linux-musl-mipsle linux-musl-ppc64le linux-musl-s390x)
   CGO_ARGS=(x86_64-linux-musl-gcc aarch64-linux-musl-gcc mips-linux-musl-gcc mips64-linux-musl-gcc mips64el-linux-musl-gcc mipsel-linux-musl-gcc powerpc64le-linux-musl-gcc s390x-linux-musl-gcc)
   for i in "${!OS_ARCHES[@]}"; do
