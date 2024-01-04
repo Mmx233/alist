@@ -102,7 +102,7 @@ PrepareBuildDocker() {
 BuildDocker() {
   PrepareBuildDocker
 
-  BASE="https://musl.nn.ci/"
+  BASE="https://musl.cc/"
   FILES=(x86_64-linux-musl-cross aarch64-linux-musl-cross i486-linux-musl-cross s390x-linux-musl-cross armv6-linux-musleabihf-cross armv7l-linux-musleabihf-cross)
   for i in "${FILES[@]}"; do
     url="${BASE}${i}.tgz"
