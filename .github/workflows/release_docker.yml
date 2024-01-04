@@ -17,6 +17,17 @@ jobs:
         with:
           go-version: 'stable'
 
+      - name: Cache musl
+        id: cache-musl
+        uses: actions/cache@v3
+        with:
+          path: /usr/local/*-linux-musl*
+          key: docker-musl
+
+      - name: Download linux musl
+        if: steps.cache-musl.outputs.cache-hit != 'true'
+        run: bash build.sh download docker-musl
+
       - name: Build binary
         run: bash build.sh release docker
 

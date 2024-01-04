@@ -99,9 +99,7 @@ PrepareBuildDocker() {
   go mod download
 }
 
-BuildDocker() {
-  PrepareBuildDocker
-
+PrepareDockerMusl() {
   BASE="https://musl.cc/"
   FILES=(x86_64-linux-musl-cross aarch64-linux-musl-cross i486-linux-musl-cross s390x-linux-musl-cross armv6-linux-musleabihf-cross armv7l-linux-musleabihf-cross)
   for i in "${FILES[@]}"; do
@@ -110,6 +108,10 @@ BuildDocker() {
     sudo tar xf "${i}.tgz" --strip-components 1 -C /usr/local
     rm -f "${i}.tgz"
   done
+}
+
+BuildDocker() {
+  PrepareBuildDocker
 
   docker_lflags="--extldflags '-static -fpic' $ldflags"
   export CGO_ENABLED=1
@@ -251,6 +253,10 @@ elif [ "$1" = "release" ]; then
     BuildRelease
     MakeRelease "md5.txt"
   fi
+elif [ "$1" = "download" ]; then
+    if [ "$2" = "docker-musl" ]; then
+        PrepareDockerMusl
+    fi
 else
   echo -e "Parameter error"
 fi
