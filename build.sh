@@ -115,7 +115,7 @@ BuildDocker() {
   export CGO_ENABLED=1
 
   OS_ARCHES=(linux-amd64 linux-arm64 linux-386 linux-s390x)
-  CGO_ARGS=(x86_64-linux-musl-gcc aarch64-linux-musl-gcc i486-linux-musl-cross s390x-linux-musl-gcc)
+  CGO_ARGS=(x86_64-linux-musl-gcc aarch64-linux-musl-gcc i486-linux-musl-gcc s390x-linux-musl-gcc)
   for i in "${!OS_ARCHES[@]}"; do
     os_arch=${OS_ARCHES[$i]}
     cgo_cc=${CGO_ARGS[$i]}
@@ -128,7 +128,7 @@ BuildDocker() {
   done
 
   DOCKER_ARM_ARCHES=(linux-arm/v6 linux-arm/v7)
-  CGO_ARGS=(armv6-linux-musleabihf armv7l-linux-musleabihf)
+  CGO_ARGS=(armv6-linux-musleabihf-gcc armv7l-linux-musleabihf-gcc)
   GO_ARM=(6 7)
   export GOOS=linux
   export GOARCH=arm
