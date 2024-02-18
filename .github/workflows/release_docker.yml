@@ -31,9 +31,9 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: mmx233/alist
-          tags: |
-            type=raw,value=latest,enable=false
-            type=semver,pattern={{raw}},suffix=-ffmpeg
+          flavor: |
+            latest=true
+            suffix=-ffmpeg,onlatest=true
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
