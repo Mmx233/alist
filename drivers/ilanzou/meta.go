@@ -15,11 +15,13 @@ type Addition struct {
 }
 
 type Conf struct {
-	base     string
-	secret   []byte
-	bucket   string
-	unproved string
-	proved   string
+	base       string
+	secret     []byte
+	bucket     string
+	unproved   string
+	proved     string
+	devVersion string
+	site       string
 }
 
 func init() {
@@ -39,11 +41,13 @@ func init() {
 				NoOverwriteUpload: false,
 			},
 			conf: Conf{
-				base:     "https://api.ilanzou.com",
-				secret:   []byte("lanZouY-disk-app"),
-				bucket:   "wpanstore-lanzou",
-				unproved: "unproved",
-				proved:   "proved",
+				base:       "https://api.ilanzou.com",
+				secret:     []byte("lanZouY-disk-app"),
+				bucket:     "wpanstore-lanzou",
+				unproved:   "unproved",
+				proved:     "proved",
+				devVersion: "122",
+				site:       "https://www.ilanzou.com",
 			},
 		}
 	})
@@ -63,11 +67,13 @@ func init() {
 				NoOverwriteUpload: false,
 			},
 			conf: Conf{
-				base:     "https://api.feijipan.com",
-				secret:   []byte("dingHao-disk-app"),
-				bucket:   "wpanstore",
-				unproved: "ws",
-				proved:   "app",
+				base:       "https://api.feijipan.com",
+				secret:     []byte("dingHao-disk-app"),
+				bucket:     "wpanstore",
+				unproved:   "ws",
+				proved:     "app",
+				devVersion: "121",
+				site:       "https://www.feijipan.com",
 			},
 		}
 	})
