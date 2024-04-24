@@ -17,6 +17,19 @@ jobs:
         with:
           go-version: 'stable'
 
+      - name: Cache Musl
+        id: cache-musl
+        uses: actions/cache@v4
+        with:
+          path: |
+            build/musl-libs
+          # Cache valid for a month
+          key: $(date +%Y-%m)-docker-musl-libs
+
+      - name: Download Musl Library
+        if: steps.cache-musl.outputs.cache-hit != 'true'
+        run: bash build.sh prepare docker-multiplatform
+
       - name: Build go binary
         run: bash build.sh release docker-multiplatform
 
