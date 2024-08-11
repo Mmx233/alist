@@ -37,15 +37,6 @@ jobs:
         with:
           images: mmx233/alist
 
-      - name: Docker meta ffmpeg
-        id: meta-ffmpeg
-        uses: docker/metadata-action@v5
-        with:
-          images: mmx233/alist
-          flavor: |
-            latest=true
-            suffix=-ffmpeg,onlatest=true
-
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
 
@@ -69,7 +60,16 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           platforms: linux/amd64,linux/arm64,linux/arm/v7,linux/386,linux/arm/v6,linux/s390x
 
-      - name: Build and push ffmpeg version
+      - name: Docker meta with ffmpeg
+        id: meta-ffmpeg
+        uses: docker/metadata-action@v5
+        with:
+          images: mmx233/alist
+          flavor: |
+            latest=true
+            suffix=-ffmpeg,onlatest=true
+
+      - name: Build and push with ffmpeg
         id: docker_build_ffmpeg
         uses: docker/build-push-action@v6
         with:
@@ -78,4 +78,5 @@ jobs:
           push: true
           tags: ${{ steps.meta-ffmpeg.outputs.tags }}
           labels: ${{ steps.meta-ffmpeg.outputs.labels }}
+          build-args: FFMPEG=true
           platforms: linux/amd64,linux/arm64,linux/arm/v7,linux/386,linux/arm/v6,linux/s390x
