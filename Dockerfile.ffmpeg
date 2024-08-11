@@ -1,4 +1,4 @@
-FROM xhofe/alist:latest
+FROM mmx233/alist:latest
 RUN apk update && \
     apk add --no-cache ffmpeg \
     rm -rf /var/cache/apk/*
