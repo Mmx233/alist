@@ -1,6 +1,7 @@
 package handles
 
 import (
+	"context"
 	"fmt"
 	"io"
 	stdpath "path"
@@ -86,7 +87,7 @@ func Proxy(c *gin.Context) {
 				return
 			}
 		}
-		link, file, err := fs.Link(c, rawPath, model.LinkArgs{
+		link, file, err := fs.Link(context.WithValue(c, "is_proxy", true), rawPath, model.LinkArgs{
 			Header:  c.Request.Header,
 			Type:    c.Query("type"),
 			HttpReq: c.Request,

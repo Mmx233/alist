@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"github.com/alist-org/alist/v3/server/common"
+	"github.com/alist-org/alist/v3/pkg/utils"
 	"io"
 	"net/url"
 	stdpath "path"
@@ -105,7 +105,7 @@ func (d *S3) Link(ctx context.Context, file model.Obj, args model.LinkArgs) (*mo
 			link.URL = strings.Replace(link.URL, "/"+d.Bucket, "", 1)
 		}
 	} else {
-		if common.ShouldProxy(d, filename) {
+		if utils.IsProxied(ctx) {
 			err = req.Sign()
 			link.URL = req.HTTPRequest.URL.String()
 			link.Header = req.HTTPRequest.Header

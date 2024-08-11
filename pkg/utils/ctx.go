@@ -12,3 +12,11 @@ func IsCanceled(ctx context.Context) bool {
 		return false
 	}
 }
+
+func IsProxied(ctx context.Context) bool {
+	value := ctx.Value("is_proxy")
+	if value == nil {
+		return false
+	}
+	return value.(bool)
+}
