@@ -1,14 +1,24 @@
 package pikpak
 
 import (
+	"bytes"
 	"crypto/md5"
 	"crypto/sha1"
 	"encoding/hex"
 	"fmt"
+	"github.com/alist-org/alist/v3/internal/driver"
+	"github.com/alist-org/alist/v3/internal/model"
+	"github.com/alist-org/alist/v3/internal/op"
 	"github.com/alist-org/alist/v3/pkg/utils"
+	"github.com/aliyun/aliyun-oss-go-sdk/oss"
+	jsoniter "github.com/json-iterator/go"
+	"github.com/pkg/errors"
+	"io"
 	"net/http"
+	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/alist-org/alist/v3/drivers/base"
@@ -17,34 +27,141 @@ import (
 
 // do others that not defined in Driver interface
 
-var Algorithms = []string{
-	"PAe56I7WZ6FCSkFy77A96jHWcQA27ui80Qy4",
-	"SUbmk67TfdToBAEe2cZyP8vYVeN",
-	"1y3yFSZVWiGN95fw/2FQlRuH/Oy6WnO",
-	"8amLtHJpGzHPz4m9hGz7r+i+8dqQiAk",
-	"tmIEq5yl2g/XWwM3sKZkY4SbL8YUezrvxPksNabUJ",
-	"4QvudeJwgJuSf/qb9/wjC21L5aib",
-	"D1RJd+FZ+LBbt+dAmaIyYrT9gxJm0BB",
-	"1If",
-	"iGZr/SJPUFRkwvC174eelKy",
+var AndroidAlgorithms = []string{
+	"Gez0T9ijiI9WCeTsKSg3SMlx",
+	"zQdbalsolyb1R/",
+	"ftOjr52zt51JD68C3s",
+	"yeOBMH0JkbQdEFNNwQ0RI9T3wU/v",
+	"BRJrQZiTQ65WtMvwO",
+	"je8fqxKPdQVJiy1DM6Bc9Nb1",
+	"niV",
+	"9hFCW2R1",
+	"sHKHpe2i96",
+	"p7c5E6AcXQ/IJUuAEC9W6",
+	"",
+	"aRv9hjc9P+Pbn+u3krN6",
+	"BzStcgE8qVdqjEH16l4",
+	"SqgeZvL5j9zoHP95xWHt",
+	"zVof5yaJkPe3VFpadPof",
+}
+
+var WebAlgorithms = []string{
+	"C9qPpZLN8ucRTaTiUMWYS9cQvWOE",
+	"+r6CQVxjzJV6LCV",
+	"F",
+	"pFJRC",
+	"9WXYIDGrwTCz2OiVlgZa90qpECPD6olt",
+	"/750aCr4lm/Sly/c",
+	"RB+DT/gZCrbV",
+	"",
+	"CyLsf7hdkIRxRm215hl",
+	"7xHvLi2tOYP0Y92b",
+	"ZGTXXxu8E/MIWaEDB+Sm/",
+	"1UI3",
+	"E7fP5Pfijd+7K+t6Tg/NhuLq0eEUVChpJSkrKxpO",
+	"ihtqpG6FMt65+Xk+tWUH2",
+	"NhXXU9rg4XXdzo7u5o",
 }
 
 const (
-	ClientID      = "YNxT9w7GMdWvEOKa"
-	ClientSecret  = "dbw2OtmVEeuUvIptb1Coyg"
-	ClientVersion = "1.46.2"
-	PackageName   = "com.pikcloud.pikpak"
-	SdkVersion    = "2.0.4.204000 "
+	OSSUserAgent               = "aliyun-sdk-android/2.9.13(Linux/Android 14/M2004j7ac;UKQ1.231108.001)"
+	OssSecurityTokenHeaderName = "X-OSS-Security-Token"
+	ThreadsNum                 = 10
 )
+
+const (
+	AndroidClientID      = "YNxT9w7GMdWvEOKa"
+	AndroidClientSecret  = "dbw2OtmVEeuUvIptb1Coyg"
+	AndroidClientVersion = "1.47.1"
+	AndroidPackageName   = "com.pikcloud.pikpak"
+	AndroidSdkVersion    = "2.0.4.204000"
+	WebClientID          = "YUMx5nI8ZU8Ap8pm"
+	WebClientSecret      = "dbw2OtmVEeuUvIptb1Coyg"
+	WebClientVersion     = "2.0.0"
+	WebPackageName       = "mypikpak.com"
+	WebSdkVersion        = "8.0.3"
+)
+
+func (d *PikPak) login() error {
+	url := "https://user.mypikpak.com/v1/auth/signin"
+	// 使用 用户填写的 CaptchaToken —————— (验证后的captcha_token)
+	if d.GetCaptchaToken() == "" {
+		if err := d.RefreshCaptchaTokenInLogin(GetAction(http.MethodPost, url), d.Username); err != nil {
+			return err
+		}
+	}
+
+	var e ErrResp
+	res, err := base.RestyClient.SetRetryCount(1).R().SetError(&e).SetBody(base.Json{
+		"captcha_token": d.GetCaptchaToken(),
+		"client_id":     d.ClientID,
+		"client_secret": d.ClientSecret,
+		"username":      d.Username,
+		"password":      d.Password,
+	}).SetQueryParam("client_id", d.ClientID).Post(url)
+	if err != nil {
+		return err
+	}
+	if e.ErrorCode != 0 {
+		return &e
+	}
+	data := res.Body()
+	d.RefreshToken = jsoniter.Get(data, "refresh_token").ToString()
+	d.AccessToken = jsoniter.Get(data, "access_token").ToString()
+	d.Common.SetUserID(jsoniter.Get(data, "sub").ToString())
+	return nil
+}
+
+//func (d *PikPak) refreshToken() error {
+//	url := "https://user.mypikpak.com/v1/auth/token"
+//	var e ErrResp
+//	res, err := base.RestyClient.SetRetryCount(1).R().SetError(&e).
+//		SetHeader("user-agent", "").SetBody(base.Json{
+//		"client_id":     ClientID,
+//		"client_secret": ClientSecret,
+//		"grant_type":    "refresh_token",
+//		"refresh_token": d.RefreshToken,
+//	}).SetQueryParam("client_id", ClientID).Post(url)
+//	if err != nil {
+//		d.Status = err.Error()
+//		op.MustSaveDriverStorage(d)
+//		return err
+//	}
+//	if e.ErrorCode != 0 {
+//		if e.ErrorCode == 4126 {
+//			// refresh_token invalid, re-login
+//			return d.login()
+//		}
+//		d.Status = e.Error()
+//		op.MustSaveDriverStorage(d)
+//		return errors.New(e.Error())
+//	}
+//	data := res.Body()
+//	d.Status = "work"
+//	d.RefreshToken = jsoniter.Get(data, "refresh_token").ToString()
+//	d.AccessToken = jsoniter.Get(data, "access_token").ToString()
+//	d.Common.SetUserID(jsoniter.Get(data, "sub").ToString())
+//	d.Addition.RefreshToken = d.RefreshToken
+//	op.MustSaveDriverStorage(d)
+//	return nil
+//}
 
 func (d *PikPak) request(url string, method string, callback base.ReqCallback, resp interface{}) ([]byte, error) {
 	req := base.RestyClient.R()
-
-	token, err := d.oauth2Token.Token()
-	if err != nil {
-		return nil, err
+	req.SetHeaders(map[string]string{
+		//"Authorization":   "Bearer " + d.AccessToken,
+		"User-Agent":      d.GetUserAgent(),
+		"X-Device-ID":     d.GetDeviceID(),
+		"X-Captcha-Token": d.GetCaptchaToken(),
+	})
+	if d.oauth2Token != nil {
+		// 使用oauth2 获取 access_token
+		token, err := d.oauth2Token.Token()
+		if err != nil {
+			return nil, err
+		}
+		req.SetAuthScheme(token.TokenType).SetAuthToken(token.AccessToken)
 	}
-	req.SetAuthScheme(token.TokenType).SetAuthToken(token.AccessToken)
 
 	if callback != nil {
 		callback(req)
@@ -59,48 +176,35 @@ func (d *PikPak) request(url string, method string, callback base.ReqCallback, r
 		return nil, err
 	}
 
-	if e.IsError() {
-		return nil, &e
-	}
-	return res.Body(), nil
-}
-
-func (d *PikPak) requestWithCaptchaToken(url string, method string, callback base.ReqCallback, resp interface{}) ([]byte, error) {
-
-	data, err := d.request(url, method, func(req *resty.Request) {
-		req.SetHeaders(map[string]string{
-			"User-Agent":      d.GetUserAgent(),
-			"X-Device-ID":     d.GetDeviceID(),
-			"X-Captcha-Token": d.GetCaptchaToken(),
-		})
-		if callback != nil {
-			callback(req)
-		}
-	}, resp)
-
-	errResp, ok := err.(*ErrResp)
-	if !ok {
-		return nil, err
-	}
-
-	switch errResp.ErrorCode {
+	switch e.ErrorCode {
 	case 0:
-		return data, nil
-	//case 4122, 4121, 10, 16:
-	//	if d.refreshTokenFunc != nil {
-	//		if err = xc.refreshTokenFunc(); err == nil {
-	//			break
-	//		}
-	//	}
-	//	return nil, err
+		return res.Body(), nil
+	case 4122, 4121, 16:
+		// access_token 过期
+
+		//if err1 := d.refreshToken(); err1 != nil {
+		//	return nil, err1
+		//}
+		t, err := d.oauth2Token.Token()
+		if err != nil {
+			return nil, err
+		}
+		d.AccessToken = t.AccessToken
+		d.RefreshToken = t.RefreshToken
+		d.Addition.RefreshToken = t.RefreshToken
+		op.MustSaveDriverStorage(d)
+
+		return d.request(url, method, callback, resp)
 	case 9: // 验证码token过期
 		if err = d.RefreshCaptchaTokenAtLogin(GetAction(method, url), d.Common.UserID); err != nil {
 			return nil, err
 		}
+		return d.request(url, method, callback, resp)
+	case 10: // 操作频繁
+		return nil, errors.New(e.ErrorDescription)
 	default:
-		return nil, err
+		return nil, errors.New(e.Error())
 	}
-	return d.requestWithCaptchaToken(url, method, callback, resp)
 }
 
 func (d *PikPak) getFiles(id string) ([]File, error) {
@@ -141,8 +245,13 @@ type Common struct {
 	CaptchaToken string
 	UserID       string
 	// 必要值,签名相关
-	DeviceID  string
-	UserAgent string
+	ClientID      string
+	ClientSecret  string
+	ClientVersion string
+	PackageName   string
+	Algorithms    []string
+	DeviceID      string
+	UserAgent     string
 	// 验证码token刷新成功回调
 	RefreshCTokenCk func(token string)
 }
@@ -231,8 +340,8 @@ func (c *Common) GetDeviceID() string {
 // RefreshCaptchaTokenAtLogin 刷新验证码token(登录后)
 func (d *PikPak) RefreshCaptchaTokenAtLogin(action, userID string) error {
 	metas := map[string]string{
-		"client_version": ClientVersion,
-		"package_name":   PackageName,
+		"client_version": d.ClientVersion,
+		"package_name":   d.PackageName,
 		"user_id":        userID,
 	}
 	metas["timestamp"], metas["captcha_sign"] = d.Common.GetCaptchaSign()
@@ -255,8 +364,8 @@ func (d *PikPak) RefreshCaptchaTokenInLogin(action, username string) error {
 // GetCaptchaSign 获取验证码签名
 func (c *Common) GetCaptchaSign() (timestamp, sign string) {
 	timestamp = fmt.Sprint(time.Now().UnixMilli())
-	str := fmt.Sprint(ClientID, ClientVersion, PackageName, c.DeviceID, timestamp)
-	for _, algorithm := range Algorithms {
+	str := fmt.Sprint(c.ClientID, c.ClientVersion, c.PackageName, c.DeviceID, timestamp)
+	for _, algorithm := range c.Algorithms {
 		str = utils.GetMD5EncodeStr(str + algorithm)
 	}
 	sign = "1." + str
@@ -267,16 +376,16 @@ func (c *Common) GetCaptchaSign() (timestamp, sign string) {
 func (d *PikPak) refreshCaptchaToken(action string, metas map[string]string) error {
 	param := CaptchaTokenRequest{
 		Action:       action,
-		CaptchaToken: d.Common.CaptchaToken,
-		ClientID:     ClientID,
-		DeviceID:     d.Common.DeviceID,
+		CaptchaToken: d.GetCaptchaToken(),
+		ClientID:     d.ClientID,
+		DeviceID:     d.GetDeviceID(),
 		Meta:         metas,
 		RedirectUri:  "xlaccsdk01://xbase.cloud/callback?state=harbor",
 	}
 	var e ErrResp
 	var resp CaptchaTokenResponse
 	_, err := d.request("https://user.mypikpak.com/v1/shield/captcha/init", http.MethodPost, func(req *resty.Request) {
-		req.SetError(&e).SetBody(param)
+		req.SetError(&e).SetBody(param).SetQueryParam("client_id", d.ClientID)
 	}, &resp)
 
 	if err != nil {
@@ -284,15 +393,11 @@ func (d *PikPak) refreshCaptchaToken(action string, metas map[string]string) err
 	}
 
 	if e.IsError() {
-		return &e
+		return errors.New(e.Error())
 	}
 
 	if resp.Url != "" {
 		return fmt.Errorf(`need verify: <a target="_blank" href="%s">Click Here</a>`, resp.Url)
-	}
-
-	if resp.CaptchaToken == "" {
-		return fmt.Errorf("empty captchaToken")
 	}
 
 	if d.Common.RefreshCTokenCk != nil {
@@ -300,4 +405,238 @@ func (d *PikPak) refreshCaptchaToken(action string, metas map[string]string) err
 	}
 	d.Common.SetCaptchaToken(resp.CaptchaToken)
 	return nil
+}
+
+func (d *PikPak) UploadByOSS(params *S3Params, stream model.FileStreamer, up driver.UpdateProgress) error {
+	ossClient, err := oss.New(params.Endpoint, params.AccessKeyID, params.AccessKeySecret)
+	if err != nil {
+		return err
+	}
+	bucket, err := ossClient.Bucket(params.Bucket)
+	if err != nil {
+		return err
+	}
+
+	err = bucket.PutObject(params.Key, stream, OssOption(params)...)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (d *PikPak) UploadByMultipart(params *S3Params, fileSize int64, stream model.FileStreamer, up driver.UpdateProgress) error {
+	var (
+		chunks    []oss.FileChunk
+		parts     []oss.UploadPart
+		imur      oss.InitiateMultipartUploadResult
+		ossClient *oss.Client
+		bucket    *oss.Bucket
+		err       error
+	)
+
+	tmpF, err := stream.CacheFullInTempFile()
+	if err != nil {
+		return err
+	}
+
+	if ossClient, err = oss.New(params.Endpoint, params.AccessKeyID, params.AccessKeySecret); err != nil {
+		return err
+	}
+
+	if bucket, err = ossClient.Bucket(params.Bucket); err != nil {
+		return err
+	}
+
+	ticker := time.NewTicker(time.Hour * 12)
+	defer ticker.Stop()
+	// 设置超时
+	timeout := time.NewTimer(time.Hour * 24)
+
+	if chunks, err = SplitFile(fileSize); err != nil {
+		return err
+	}
+
+	if imur, err = bucket.InitiateMultipartUpload(params.Key,
+		oss.SetHeader(OssSecurityTokenHeaderName, params.SecurityToken),
+		oss.UserAgentHeader(OSSUserAgent),
+	); err != nil {
+		return err
+	}
+
+	wg := sync.WaitGroup{}
+	wg.Add(len(chunks))
+
+	chunksCh := make(chan oss.FileChunk)
+	errCh := make(chan error)
+	UploadedPartsCh := make(chan oss.UploadPart)
+	quit := make(chan struct{})
+
+	// producer
+	go chunksProducer(chunksCh, chunks)
+	go func() {
+		wg.Wait()
+		quit <- struct{}{}
+	}()
+
+	// consumers
+	for i := 0; i < ThreadsNum; i++ {
+		go func(threadId int) {
+			defer func() {
+				if r := recover(); r != nil {
+					errCh <- fmt.Errorf("recovered in %v", r)
+				}
+			}()
+			for chunk := range chunksCh {
+				var part oss.UploadPart // 出现错误就继续尝试，共尝试3次
+				for retry := 0; retry < 3; retry++ {
+					select {
+					case <-ticker.C:
+						errCh <- errors.Wrap(err, "ossToken 过期")
+					default:
+					}
+
+					buf := make([]byte, chunk.Size)
+					if _, err = tmpF.ReadAt(buf, chunk.Offset); err != nil && !errors.Is(err, io.EOF) {
+						continue
+					}
+
+					b := bytes.NewBuffer(buf)
+					if part, err = bucket.UploadPart(imur, b, chunk.Size, chunk.Number, OssOption(params)...); err == nil {
+						break
+					}
+				}
+				if err != nil {
+					errCh <- errors.Wrap(err, fmt.Sprintf("上传 %s 的第%d个分片时出现错误：%v", stream.GetName(), chunk.Number, err))
+				}
+				UploadedPartsCh <- part
+			}
+		}(i)
+	}
+
+	go func() {
+		for part := range UploadedPartsCh {
+			parts = append(parts, part)
+			wg.Done()
+		}
+	}()
+LOOP:
+	for {
+		select {
+		case <-ticker.C:
+			// ossToken 过期
+			return err
+		case <-quit:
+			break LOOP
+		case <-errCh:
+			return err
+		case <-timeout.C:
+			return fmt.Errorf("time out")
+		}
+	}
+
+	// EOF错误是xml的Unmarshal导致的，响应其实是json格式，所以实际上上传是成功的
+	if _, err = bucket.CompleteMultipartUpload(imur, parts, OssOption(params)...); err != nil && !errors.Is(err, io.EOF) {
+		// 当文件名含有 &< 这两个字符之一时响应的xml解析会出现错误，实际上上传是成功的
+		if filename := filepath.Base(stream.GetName()); !strings.ContainsAny(filename, "&<") {
+			return err
+		}
+	}
+	return nil
+}
+
+func chunksProducer(ch chan oss.FileChunk, chunks []oss.FileChunk) {
+	for _, chunk := range chunks {
+		ch <- chunk
+	}
+}
+
+func SplitFile(fileSize int64) (chunks []oss.FileChunk, err error) {
+	for i := int64(1); i < 10; i++ {
+		if fileSize < i*utils.GB { // 文件大小小于iGB时分为i*100片
+			if chunks, err = SplitFileByPartNum(fileSize, int(i*100)); err != nil {
+				return
+			}
+			break
+		}
+	}
+	if fileSize > 9*utils.GB { // 文件大小大于9GB时分为1000片
+		if chunks, err = SplitFileByPartNum(fileSize, 1000); err != nil {
+			return
+		}
+	}
+	// 单个分片大小不能小于1MB
+	if chunks[0].Size < 1*utils.MB {
+		if chunks, err = SplitFileByPartSize(fileSize, 1*utils.MB); err != nil {
+			return
+		}
+	}
+	return
+}
+
+// SplitFileByPartNum splits big file into parts by the num of parts.
+// Split the file with specified parts count, returns the split result when error is nil.
+func SplitFileByPartNum(fileSize int64, chunkNum int) ([]oss.FileChunk, error) {
+	if chunkNum <= 0 || chunkNum > 10000 {
+		return nil, errors.New("chunkNum invalid")
+	}
+
+	if int64(chunkNum) > fileSize {
+		return nil, errors.New("oss: chunkNum invalid")
+	}
+
+	var chunks []oss.FileChunk
+	chunk := oss.FileChunk{}
+	chunkN := (int64)(chunkNum)
+	for i := int64(0); i < chunkN; i++ {
+		chunk.Number = int(i + 1)
+		chunk.Offset = i * (fileSize / chunkN)
+		if i == chunkN-1 {
+			chunk.Size = fileSize/chunkN + fileSize%chunkN
+		} else {
+			chunk.Size = fileSize / chunkN
+		}
+		chunks = append(chunks, chunk)
+	}
+
+	return chunks, nil
+}
+
+// SplitFileByPartSize splits big file into parts by the size of parts.
+// Splits the file by the part size. Returns the FileChunk when error is nil.
+func SplitFileByPartSize(fileSize int64, chunkSize int64) ([]oss.FileChunk, error) {
+	if chunkSize <= 0 {
+		return nil, errors.New("chunkSize invalid")
+	}
+
+	chunkN := fileSize / chunkSize
+	if chunkN >= 10000 {
+		return nil, errors.New("Too many parts, please increase part size")
+	}
+
+	var chunks []oss.FileChunk
+	chunk := oss.FileChunk{}
+	for i := int64(0); i < chunkN; i++ {
+		chunk.Number = int(i + 1)
+		chunk.Offset = i * chunkSize
+		chunk.Size = chunkSize
+		chunks = append(chunks, chunk)
+	}
+
+	if fileSize%chunkSize > 0 {
+		chunk.Number = len(chunks) + 1
+		chunk.Offset = int64(len(chunks)) * chunkSize
+		chunk.Size = fileSize % chunkSize
+		chunks = append(chunks, chunk)
+	}
+
+	return chunks, nil
+}
+
+// OssOption get options
+func OssOption(params *S3Params) []oss.Option {
+	options := []oss.Option{
+		oss.SetHeader(OssSecurityTokenHeaderName, params.SecurityToken),
+		oss.UserAgentHeader(OSSUserAgent),
+	}
+	return options
 }
