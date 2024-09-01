@@ -16,6 +16,7 @@ echo "backend version: $version"
 echo "frontend version: $webVersion"
 
 ldflags="\
+-w -s \
 -X 'github.com/alist-org/alist/v3/internal/conf.BuiltAt=$builtAt' \
 -X 'github.com/alist-org/alist/v3/internal/conf.GoVersion=$goVersion' \
 -X 'github.com/alist-org/alist/v3/internal/conf.GitAuthor=$gitAuthor' \
