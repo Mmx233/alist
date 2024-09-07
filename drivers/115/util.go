@@ -77,7 +77,7 @@ const (
 	appVer = "2.0.3.6"
 )
 
-func (c *Pan115) DownloadWithUA(pickCode, ua string) (*driver115.DownloadInfo, error) {
+func (d *Pan115) DownloadWithUA(pickCode, ua string) (*driver115.DownloadInfo, error) {
 	key := crypto.GenerateKey()
 	result := driver115.DownloadResp{}
 	params, err := utils.Json.Marshal(map[string]string{"pickcode": pickCode})
@@ -91,10 +91,10 @@ func (c *Pan115) DownloadWithUA(pickCode, ua string) (*driver115.DownloadInfo, e
 	reqUrl := fmt.Sprintf("%s?t=%s", driver115.ApiDownloadGetUrl, driver115.Now().String())
 	req, _ := http.NewRequest(http.MethodPost, reqUrl, bodyReader)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Set("Cookie", c.Cookie)
+	req.Header.Set("Cookie", d.Cookie)
 	req.Header.Set("User-Agent", ua)
 
-	resp, err := c.client.Client.GetClient().Do(req)
+	resp, err := d.client.Client.GetClient().Do(req)
 	if err != nil {
 		return nil, err
 	}
