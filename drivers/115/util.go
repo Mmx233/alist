@@ -2,6 +2,7 @@ package _115
 
 import (
 	"bytes"
+	"context"
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
@@ -132,7 +133,7 @@ func (d *Pan115) DownloadWithUA(pickCode, ua string) (*driver115.DownloadInfo, e
 	return nil, driver115.ErrUnexpected
 }
 
-func (d *Pan115) rapidUpload(fileSize int64, fileName, dirID, preID, fileID string, stream model.FileStreamer) (*driver115.UploadInitResp, error) {
+func (d *Pan115) rapidUpload(ctx context.Context, fileSize int64, fileName, dirID, preID, fileID string, stream model.FileStreamer) (*driver115.UploadInitResp, error) {
 	var (
 		ecdhCipher   *cipher.EcdhCipher
 		encrypted    []byte
@@ -212,12 +213,20 @@ func (d *Pan115) rapidUpload(fileSize int64, fileName, dirID, preID, fileID stri
 		result.SHA1 = fileID
 		return nil
 	}
-	for {
+	for maxRetry := 10; maxRetry > 0; maxRetry-- {
 		if err := tryUpload(); err == nil {
 			// Original logic is no error printing and no max retry times.
+			// Context controlling, time limiter and max retry is added at once
+			utils.Log.Debugln("115 driver rapid upload failed:", err)
 			break
 		}
-		time.Sleep(5 * time.Second)
+
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(time.Second * 5):
+			// continue
+		}
 	}
 
 	return &result, nil
@@ -240,7 +249,7 @@ func UploadDigestRange(stream model.FileStreamer, rangeSpec string) (result stri
 }
 
 // UploadByMultipart upload by mutipart blocks
-func (d *Pan115) UploadByMultipart(params *driver115.UploadOSSParams, fileSize int64, stream model.FileStreamer, dirID string, opts ...driver115.UploadMultipartOption) error {
+func (d *Pan115) UploadByMultipart(ctx context.Context, params *driver115.UploadOSSParams, fileSize int64, stream model.FileStreamer, dirID string, opts ...driver115.UploadMultipartOption) error {
 	var (
 		chunks    []oss.FileChunk
 		parts     []oss.UploadPart
