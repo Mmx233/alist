@@ -209,9 +209,11 @@ func (d *Pan115) rapidUpload(ctx context.Context, fileSize int64, fileName, dirI
 			if err != nil {
 				return err
 			}
+		} else {
+			return nil
 		}
 		result.SHA1 = fileID
-		return nil
+		return fmt.Errorf("115 rapid upload api returned status %d", result.Status)
 	}
 	for maxRetry := 10; ; maxRetry-- {
 		if maxRetry <= 0 {
