@@ -296,6 +296,7 @@ func (d *Pan115) UploadByMultipart(ctx context.Context, params *driver115.Upload
 	if imur, err = bucket.InitiateMultipartUpload(params.Object,
 		oss.SetHeader(driver115.OssSecurityTokenHeaderName, ossToken.SecurityToken),
 		oss.UserAgentHeader(driver115.OSSUserAgent),
+		oss.WithContext(ctx),
 	); err != nil {
 		return err
 	}
@@ -342,8 +343,10 @@ func (d *Pan115) UploadByMultipart(ctx context.Context, params *driver115.Upload
 					}
 
 					b := bytes.NewBuffer(buf)
-					if part, err = bucket.UploadPart(imur, b, chunk.Size, chunk.Number, driver115.OssOption(params, ossToken)...); err == nil {
+					if part, err = bucket.UploadPart(imur, b, chunk.Size, chunk.Number, append(driver115.OssOption(params, ossToken), oss.WithContext(ctx))...); err == nil {
 						break
+					} else if errors.Is(err, context.Canceled) {
+						return
 					}
 				}
 				if err != nil {
@@ -382,13 +385,13 @@ LOOP:
 	}
 
 	// EOF错误是xml的Unmarshal导致的，响应其实是json格式，所以实际上上传是成功的
-	if _, err = bucket.CompleteMultipartUpload(imur, parts, driver115.OssOption(params, ossToken)...); err != nil && !errors.Is(err, io.EOF) {
+	if _, err = bucket.CompleteMultipartUpload(imur, parts, append(driver115.OssOption(params, ossToken), oss.WithContext(ctx))...); err != nil && !errors.Is(err, io.EOF) {
 		// 当文件名含有 &< 这两个字符之一时响应的xml解析会出现错误，实际上上传是成功的
 		if filename := filepath.Base(stream.GetName()); !strings.ContainsAny(filename, "&<") {
 			return err
 		}
 	}
-	return d.checkUploadStatus(dirID, params.SHA1)
+	return d.checkUploadStatus(ctx, dirID, params.SHA1)
 }
 
 func chunksProducer(ctx context.Context, ch chan oss.FileChunk, chunks []oss.FileChunk) {
@@ -400,9 +403,10 @@ func chunksProducer(ctx context.Context, ch chan oss.FileChunk, chunks []oss.Fil
 	}
 }
 
-func (d *Pan115) checkUploadStatus(dirID, sha1 string) error {
+func (d *Pan115) checkUploadStatus(ctx context.Context, dirID, sha1 string) error {
 	// 验证上传是否成功
 	req := d.client.NewRequest().ForceContentType("application/json;charset=UTF-8")
+	req.SetContext(ctx)
 	opts := []driver115.GetFileOptions{
 		driver115.WithOrder(driver115.FileOrderByTime),
 		driver115.WithShowDirEnable(false),
