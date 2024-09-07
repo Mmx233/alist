@@ -104,7 +104,7 @@ func (d *Pan115) DownloadWithUA(pickCode, ua string) (*driver115.DownloadInfo, e
 	if err != nil {
 		return nil, err
 	}
-	if err := utils.Json.Unmarshal(body, &result); err != nil {
+	if err = utils.Json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return nil, err
 	}
 
@@ -112,13 +112,13 @@ func (d *Pan115) DownloadWithUA(pickCode, ua string) (*driver115.DownloadInfo, e
 		return nil, err
 	}
 
-	bytes, err := crypto.Decode(string(result.EncodedData), key)
+	decodedData, err := crypto.Decode(string(result.EncodedData), key)
 	if err != nil {
 		return nil, err
 	}
 
 	downloadInfo := driver115.DownloadData{}
-	if err := utils.Json.Unmarshal(bytes, &downloadInfo); err != nil {
+	if err := utils.Json.Unmarshal(decodedData, &downloadInfo); err != nil {
 		return nil, err
 	}
 
