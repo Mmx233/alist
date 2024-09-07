@@ -181,7 +181,7 @@ func (d *Pan115) Put(ctx context.Context, dstDir model.Obj, stream model.FileStr
 		return d.client.UploadByOSS(&fastInfo.UploadOSSParams, stream, dirID)
 	}
 	// 分片上传
-	return d.UploadByMultipart(&fastInfo.UploadOSSParams, stream.GetSize(), stream, dirID)
+	return d.UploadByMultipart(ctx, &fastInfo.UploadOSSParams, stream.GetSize(), stream, dirID)
 }
 
 func (d *Pan115) OfflineList(ctx context.Context) ([]*driver115.OfflineTask, error) {

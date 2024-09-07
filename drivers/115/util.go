@@ -307,18 +307,20 @@ func (d *Pan115) UploadByMultipart(ctx context.Context, params *driver115.Upload
 	chunksCh := make(chan oss.FileChunk)
 	errCh := make(chan error)
 	UploadedPartsCh := make(chan oss.UploadPart)
-	quit := make(chan struct{})
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 
 	// producer
-	go chunksProducer(chunksCh, chunks)
+	go chunksProducer(ctx, chunksCh, chunks)
 	go func() {
 		wg.Wait()
-		quit <- struct{}{}
+		cancel()
 	}()
 
 	// consumers
 	for i := 0; i < options.ThreadsNum; i++ {
 		go func(threadId int) {
+			defer wg.Done()
 			defer func() {
 				if r := recover(); r != nil {
 					errCh <- fmt.Errorf("recovered in %v", r)
@@ -354,9 +356,13 @@ func (d *Pan115) UploadByMultipart(ctx context.Context, params *driver115.Upload
 	}
 
 	go func() {
-		for part := range UploadedPartsCh {
-			parts = append(parts, part)
-			wg.Done()
+		for {
+			select {
+			case part := <-UploadedPartsCh:
+				parts = append(parts, part)
+			case <-ctx.Done():
+				return
+			}
 		}
 	}()
 LOOP:
@@ -367,7 +373,7 @@ LOOP:
 			if ossToken, err = d.client.GetOSSToken(); err != nil {
 				return err
 			}
-		case <-quit:
+		case <-ctx.Done():
 			break LOOP
 		case <-errCh:
 			return err
@@ -386,9 +392,12 @@ LOOP:
 	return d.checkUploadStatus(dirID, params.SHA1)
 }
 
-func chunksProducer(ch chan oss.FileChunk, chunks []oss.FileChunk) {
+func chunksProducer(ctx context.Context, ch chan oss.FileChunk, chunks []oss.FileChunk) {
 	for _, chunk := range chunks {
-		ch <- chunk
+		select {
+		case ch <- chunk:
+		case <-ctx.Done():
+		}
 	}
 }
 
