@@ -213,7 +213,11 @@ func (d *Pan115) rapidUpload(ctx context.Context, fileSize int64, fileName, dirI
 		result.SHA1 = fileID
 		return nil
 	}
-	for maxRetry := 10; maxRetry > 0; maxRetry-- {
+	for maxRetry := 10; ; maxRetry-- {
+		if maxRetry <= 0 {
+			return nil, fmt.Errorf("115 driver rapid upload max retry limit reached")
+		}
+
 		if err := tryUpload(); err == nil {
 			// Original logic is no error printing and no max retry times.
 			// Context controlling, time limiter and max retry is added at once
@@ -229,7 +233,7 @@ func (d *Pan115) rapidUpload(ctx context.Context, fileSize int64, fileName, dirI
 		}
 	}
 
-	return &result, nil
+	return &result, err
 }
 
 func UploadDigestRange(stream model.FileStreamer, rangeSpec string) (result string, err error) {
