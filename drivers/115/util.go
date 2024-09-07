@@ -160,11 +160,11 @@ func (d *Pan115) rapidUpload(fileSize int64, fileName, dirID, preID, fileID stri
 	form.Set("sig", d.client.GenerateSignature(fileID, target))
 
 	signKey, signVal := "", ""
-	for retry := true; retry; {
+	tryUpload := func() error {
 		t := driver115.Now()
 
 		if encodedToken, err = ecdhCipher.EncodeToken(t.ToInt64()); err != nil {
-			return nil, err
+			return err
 		}
 
 		params := map[string]string{
@@ -178,7 +178,7 @@ func (d *Pan115) rapidUpload(fileSize int64, fileName, dirID, preID, fileID stri
 			form.Set("sign_val", signVal)
 		}
 		if encrypted, err = ecdhCipher.Encrypt([]byte(form.Encode())); err != nil {
-			return nil, err
+			return err
 		}
 
 		req := d.client.NewRequest().
@@ -188,30 +188,36 @@ func (d *Pan115) rapidUpload(fileSize int64, fileName, dirID, preID, fileID stri
 			SetDoNotParseResponse(true)
 		resp, err := req.Post(driver115.ApiUploadInit)
 		if err != nil {
-			return nil, err
+			return err
 		}
 		data := resp.RawBody()
 		defer data.Close()
 		if bodyBytes, err = io.ReadAll(data); err != nil {
-			return nil, err
+			return err
 		}
 		if decrypted, err = ecdhCipher.Decrypt(bodyBytes); err != nil {
-			return nil, err
+			return err
 		}
 		if err = driver115.CheckErr(json.Unmarshal(decrypted, &result), &result, resp); err != nil {
-			return nil, err
+			return err
 		}
 		if result.Status == 7 {
 			// Update signKey & signVal
 			signKey = result.SignKey
 			signVal, err = UploadDigestRange(stream, result.SignCheck)
 			if err != nil {
-				return nil, err
+				return err
 			}
-		} else {
-			retry = false
 		}
 		result.SHA1 = fileID
+		return nil
+	}
+	for {
+		if err := tryUpload(); err == nil {
+			// Original logic is no error printing and no max retry times.
+			break
+		}
+		time.Sleep(5 * time.Second)
 	}
 
 	return &result, nil
