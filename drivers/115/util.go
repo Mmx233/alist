@@ -2,6 +2,7 @@ package _115
 
 import (
 	"bytes"
+	"context"
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
@@ -77,7 +78,7 @@ const (
 	appVer = "2.0.3.6"
 )
 
-func (c *Pan115) DownloadWithUA(pickCode, ua string) (*driver115.DownloadInfo, error) {
+func (d *Pan115) DownloadWithUA(pickCode, ua string) (*driver115.DownloadInfo, error) {
 	key := crypto.GenerateKey()
 	result := driver115.DownloadResp{}
 	params, err := utils.Json.Marshal(map[string]string{"pickcode": pickCode})
@@ -91,10 +92,10 @@ func (c *Pan115) DownloadWithUA(pickCode, ua string) (*driver115.DownloadInfo, e
 	reqUrl := fmt.Sprintf("%s?t=%s", driver115.ApiDownloadGetUrl, driver115.Now().String())
 	req, _ := http.NewRequest(http.MethodPost, reqUrl, bodyReader)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Set("Cookie", c.Cookie)
+	req.Header.Set("Cookie", d.Cookie)
 	req.Header.Set("User-Agent", ua)
 
-	resp, err := c.client.Client.GetClient().Do(req)
+	resp, err := d.client.Client.GetClient().Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -104,7 +105,7 @@ func (c *Pan115) DownloadWithUA(pickCode, ua string) (*driver115.DownloadInfo, e
 	if err != nil {
 		return nil, err
 	}
-	if err := utils.Json.Unmarshal(body, &result); err != nil {
+	if err = utils.Json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return nil, err
 	}
 
@@ -112,13 +113,13 @@ func (c *Pan115) DownloadWithUA(pickCode, ua string) (*driver115.DownloadInfo, e
 		return nil, err
 	}
 
-	bytes, err := crypto.Decode(string(result.EncodedData), key)
+	decodedData, err := crypto.Decode(string(result.EncodedData), key)
 	if err != nil {
 		return nil, err
 	}
 
 	downloadInfo := driver115.DownloadData{}
-	if err := utils.Json.Unmarshal(bytes, &downloadInfo); err != nil {
+	if err := utils.Json.Unmarshal(decodedData, &downloadInfo); err != nil {
 		return nil, err
 	}
 
@@ -132,7 +133,7 @@ func (c *Pan115) DownloadWithUA(pickCode, ua string) (*driver115.DownloadInfo, e
 	return nil, driver115.ErrUnexpected
 }
 
-func (d *Pan115) rapidUpload(fileSize int64, fileName, dirID, preID, fileID string, stream model.FileStreamer) (*driver115.UploadInitResp, error) {
+func (d *Pan115) rapidUpload(ctx context.Context, fileSize int64, fileName, dirID, preID, fileID string, stream model.FileStreamer) (*driver115.UploadInitResp, error) {
 	var (
 		ecdhCipher   *cipher.EcdhCipher
 		encrypted    []byte
@@ -160,11 +161,11 @@ func (d *Pan115) rapidUpload(fileSize int64, fileName, dirID, preID, fileID stri
 	form.Set("sig", d.client.GenerateSignature(fileID, target))
 
 	signKey, signVal := "", ""
-	for retry := true; retry; {
+	tryUpload := func() error {
 		t := driver115.Now()
 
 		if encodedToken, err = ecdhCipher.EncodeToken(t.ToInt64()); err != nil {
-			return nil, err
+			return err
 		}
 
 		params := map[string]string{
@@ -178,7 +179,7 @@ func (d *Pan115) rapidUpload(fileSize int64, fileName, dirID, preID, fileID stri
 			form.Set("sign_val", signVal)
 		}
 		if encrypted, err = ecdhCipher.Encrypt([]byte(form.Encode())); err != nil {
-			return nil, err
+			return err
 		}
 
 		req := d.client.NewRequest().
@@ -188,30 +189,44 @@ func (d *Pan115) rapidUpload(fileSize int64, fileName, dirID, preID, fileID stri
 			SetDoNotParseResponse(true)
 		resp, err := req.Post(driver115.ApiUploadInit)
 		if err != nil {
-			return nil, err
+			return err
 		}
 		data := resp.RawBody()
 		defer data.Close()
 		if bodyBytes, err = io.ReadAll(data); err != nil {
-			return nil, err
+			return err
 		}
 		if decrypted, err = ecdhCipher.Decrypt(bodyBytes); err != nil {
-			return nil, err
+			return err
 		}
 		if err = driver115.CheckErr(json.Unmarshal(decrypted, &result), &result, resp); err != nil {
-			return nil, err
+			return err
 		}
 		if result.Status == 7 {
 			// Update signKey & signVal
 			signKey = result.SignKey
 			signVal, err = UploadDigestRange(stream, result.SignCheck)
 			if err != nil {
-				return nil, err
+				return err
 			}
-		} else {
-			retry = false
 		}
 		result.SHA1 = fileID
+		return nil
+	}
+	for maxRetry := 10; maxRetry > 0; maxRetry-- {
+		if err := tryUpload(); err == nil {
+			// Original logic is no error printing and no max retry times.
+			// Context controlling, time limiter and max retry is added at once
+			utils.Log.Debugln("115 driver rapid upload failed:", err)
+			break
+		}
+
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(time.Second * 5):
+			// continue
+		}
 	}
 
 	return &result, nil
@@ -234,7 +249,7 @@ func UploadDigestRange(stream model.FileStreamer, rangeSpec string) (result stri
 }
 
 // UploadByMultipart upload by mutipart blocks
-func (d *Pan115) UploadByMultipart(params *driver115.UploadOSSParams, fileSize int64, stream model.FileStreamer, dirID string, opts ...driver115.UploadMultipartOption) error {
+func (d *Pan115) UploadByMultipart(ctx context.Context, params *driver115.UploadOSSParams, fileSize int64, stream model.FileStreamer, dirID string, opts ...driver115.UploadMultipartOption) error {
 	var (
 		chunks    []oss.FileChunk
 		parts     []oss.UploadPart
@@ -292,18 +307,20 @@ func (d *Pan115) UploadByMultipart(params *driver115.UploadOSSParams, fileSize i
 	chunksCh := make(chan oss.FileChunk)
 	errCh := make(chan error)
 	UploadedPartsCh := make(chan oss.UploadPart)
-	quit := make(chan struct{})
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 
 	// producer
-	go chunksProducer(chunksCh, chunks)
+	go chunksProducer(ctx, chunksCh, chunks)
 	go func() {
 		wg.Wait()
-		quit <- struct{}{}
+		cancel()
 	}()
 
 	// consumers
 	for i := 0; i < options.ThreadsNum; i++ {
 		go func(threadId int) {
+			defer wg.Done()
 			defer func() {
 				if r := recover(); r != nil {
 					errCh <- fmt.Errorf("recovered in %v", r)
@@ -339,9 +356,13 @@ func (d *Pan115) UploadByMultipart(params *driver115.UploadOSSParams, fileSize i
 	}
 
 	go func() {
-		for part := range UploadedPartsCh {
-			parts = append(parts, part)
-			wg.Done()
+		for {
+			select {
+			case part := <-UploadedPartsCh:
+				parts = append(parts, part)
+			case <-ctx.Done():
+				return
+			}
 		}
 	}()
 LOOP:
@@ -352,7 +373,7 @@ LOOP:
 			if ossToken, err = d.client.GetOSSToken(); err != nil {
 				return err
 			}
-		case <-quit:
+		case <-ctx.Done():
 			break LOOP
 		case <-errCh:
 			return err
@@ -371,9 +392,12 @@ LOOP:
 	return d.checkUploadStatus(dirID, params.SHA1)
 }
 
-func chunksProducer(ch chan oss.FileChunk, chunks []oss.FileChunk) {
+func chunksProducer(ctx context.Context, ch chan oss.FileChunk, chunks []oss.FileChunk) {
 	for _, chunk := range chunks {
-		ch <- chunk
+		select {
+		case ch <- chunk:
+		case <-ctx.Done():
+		}
 	}
 }
 

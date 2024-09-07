@@ -115,6 +115,9 @@ func (d *Pan115) Remove(ctx context.Context, obj model.Obj) error {
 }
 
 func (d *Pan115) Put(ctx context.Context, dstDir model.Obj, stream model.FileStreamer, up driver.UpdateProgress) error {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
 	if err := d.WaitLimit(ctx); err != nil {
 		return err
 	}
@@ -164,7 +167,7 @@ func (d *Pan115) Put(ctx context.Context, dstDir model.Obj, stream model.FileStr
 	// rapid-upload
 	// note that 115 add timeout for rapid-upload,
 	// and "sig invalid" err is thrown even when the hash is correct after timeout.
-	if fastInfo, err = d.rapidUpload(stream.GetSize(), stream.GetName(), dirID, preHash, fullHash, stream); err != nil {
+	if fastInfo, err = d.rapidUpload(ctx, stream.GetSize(), stream.GetName(), dirID, preHash, fullHash, stream); err != nil {
 		return err
 	}
 	if matched, err := fastInfo.Ok(); err != nil {
@@ -178,7 +181,7 @@ func (d *Pan115) Put(ctx context.Context, dstDir model.Obj, stream model.FileStr
 		return d.client.UploadByOSS(&fastInfo.UploadOSSParams, stream, dirID)
 	}
 	// 分片上传
-	return d.UploadByMultipart(&fastInfo.UploadOSSParams, stream.GetSize(), stream, dirID)
+	return d.UploadByMultipart(ctx, &fastInfo.UploadOSSParams, stream.GetSize(), stream, dirID)
 }
 
 func (d *Pan115) OfflineList(ctx context.Context) ([]*driver115.OfflineTask, error) {
