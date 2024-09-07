@@ -161,11 +161,11 @@ func (d *Pan115) rapidUpload(ctx context.Context, fileSize int64, fileName, dirI
 	form.Set("sig", d.client.GenerateSignature(fileID, target))
 
 	signKey, signVal := "", ""
-	tryUpload := func() error {
+	tryUpload := func() (ok bool, err error) {
 		t := driver115.Now()
 
 		if encodedToken, err = ecdhCipher.EncodeToken(t.ToInt64()); err != nil {
-			return err
+			return
 		}
 
 		params := map[string]string{
@@ -179,7 +179,7 @@ func (d *Pan115) rapidUpload(ctx context.Context, fileSize int64, fileName, dirI
 			form.Set("sign_val", signVal)
 		}
 		if encrypted, err = ecdhCipher.Encrypt([]byte(form.Encode())); err != nil {
-			return err
+			return
 		}
 
 		req := d.client.NewRequest().
@@ -187,51 +187,44 @@ func (d *Pan115) rapidUpload(ctx context.Context, fileSize int64, fileName, dirI
 			SetBody(encrypted).
 			SetHeaderVerbatim("Content-Type", "application/x-www-form-urlencoded").
 			SetDoNotParseResponse(true)
+		req.SetContext(ctx)
 		resp, err := req.Post(driver115.ApiUploadInit)
 		if err != nil {
-			return err
+			return
 		}
 		data := resp.RawBody()
 		defer data.Close()
 		if bodyBytes, err = io.ReadAll(data); err != nil {
-			return err
+			return
 		}
 		if decrypted, err = ecdhCipher.Decrypt(bodyBytes); err != nil {
-			return err
+			return
 		}
 		if err = driver115.CheckErr(json.Unmarshal(decrypted, &result), &result, resp); err != nil {
-			return err
+			return
 		}
 		if result.Status == 7 {
 			// Update signKey & signVal
 			signKey = result.SignKey
 			signVal, err = UploadDigestRange(stream, result.SignCheck)
 			if err != nil {
-				return err
+				return
 			}
 		} else {
-			return nil
+			ok = true
 		}
 		result.SHA1 = fileID
-		return fmt.Errorf("115 rapid upload api returned status %d", result.Status)
+		return
 	}
-	for maxRetry := 10; ; maxRetry-- {
-		if maxRetry <= 0 {
-			return nil, fmt.Errorf("115 driver rapid upload max retry limit reached")
-		}
-
-		if err := tryUpload(); err == nil {
-			// Original logic is no error printing and no max retry times.
-			// Context controlling, time limiter and max retry is added at once
-			utils.Log.Debugln("115 driver rapid upload failed:", err)
+	for {
+		if ok, err := tryUpload(); err != nil {
+			return nil, err
+		} else if ok {
 			break
 		}
 
-		select {
-		case <-ctx.Done():
+		if ctx.Err() != nil {
 			return nil, ctx.Err()
-		case <-time.After(time.Second * 5):
-			// continue
 		}
 	}
 
