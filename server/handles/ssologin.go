@@ -36,14 +36,21 @@ var opts = totp.ValidateOpts{
 	Algorithm: otp.AlgorithmSHA1,
 }
 
+func ssoRedirectUri(c *gin.Context, useCompatibility bool, method string) string {
+	if useCompatibility {
+		return common.GetApiUrl(c.Request) + "/api/auth/" + method
+	} else {
+		return common.GetApiUrl(c.Request) + "/api/auth/sso_callback" + "?method=" + method
+	}
+}
+
 func SSOLoginRedirect(c *gin.Context) {
 	method := c.Query("method")
-	usecompatibility := setting.GetBool(conf.SSOCompatibilityMode)
+	useCompatibility := setting.GetBool(conf.SSOCompatibilityMode)
 	enabled := setting.GetBool(conf.SSOLoginEnabled)
 	clientId := setting.GetStr(conf.SSOClientId)
 	platform := setting.GetStr(conf.SSOLoginPlatform)
 	var rUrl string
-	var redirectUri string
 	if !enabled {
 		common.ErrorStrResp(c, "Single sign-on is not enabled", 403)
 		return
@@ -53,11 +60,7 @@ func SSOLoginRedirect(c *gin.Context) {
 		common.ErrorStrResp(c, "no method provided", 400)
 		return
 	}
-	if usecompatibility {
-		redirectUri = common.GetApiUrl(c.Request) + "/api/auth/" + method
-	} else {
-		redirectUri = common.GetApiUrl(c.Request) + "/api/auth/sso_callback" + "?method=" + method
-	}
+	redirectUri := ssoRedirectUri(c, useCompatibility, method)
 	urlValues.Add("response_type", "code")
 	urlValues.Add("redirect_uri", redirectUri)
 	urlValues.Add("client_id", clientId)
@@ -83,7 +86,7 @@ func SSOLoginRedirect(c *gin.Context) {
 		urlValues.Add("scope", "profile")
 		urlValues.Add("state", endpoint)
 	case "OIDC":
-		oauth2Config, err := GetOIDCClient(c, method)
+		oauth2Config, err := GetOIDCClient(c, useCompatibility, redirectUri, method)
 		if err != nil {
 			common.ErrorStrResp(c, err.Error(), 400)
 			return
@@ -105,8 +108,10 @@ func SSOLoginRedirect(c *gin.Context) {
 
 var ssoClient = resty.New().SetRetryCount(3)
 
-func GetOIDCClient(c *gin.Context, argument string) (*oauth2.Config, error) {
-	redirectUri := common.GetApiUrl(c.Request) + "/api/auth/sso_callback" + "?method=" + argument
+func GetOIDCClient(c *gin.Context, useCompatibility bool, redirectUri, method string) (*oauth2.Config, error) {
+	if redirectUri == "" {
+		redirectUri = ssoRedirectUri(c, useCompatibility, method)
+	}
 	endpoint := setting.GetStr(conf.SSOEndpointName)
 	provider, err := oidc.NewProvider(c, endpoint)
 	if err != nil {
@@ -171,9 +176,9 @@ func parseJWT(p string) ([]byte, error) {
 
 func OIDCLoginCallback(c *gin.Context) {
 	useCompatibility := setting.GetBool(conf.SSOCompatibilityMode)
-	argument := c.Query("method")
+	method := c.Query("method")
 	if useCompatibility {
-		argument = path.Base(c.Request.URL.Path)
+		method = path.Base(c.Request.URL.Path)
 	}
 	clientId := setting.GetStr(conf.SSOClientId)
 	endpoint := setting.GetStr(conf.SSOEndpointName)
@@ -182,7 +187,7 @@ func OIDCLoginCallback(c *gin.Context) {
 		common.ErrorResp(c, err, 400)
 		return
 	}
-	oauth2Config, err := GetOIDCClient(c, argument)
+	oauth2Config, err := GetOIDCClient(c, useCompatibility, "", method)
 	if err != nil {
 		common.ErrorResp(c, err, 400)
 		return
@@ -226,7 +231,7 @@ func OIDCLoginCallback(c *gin.Context) {
 		common.ErrorStrResp(c, "cannot get username from OIDC provider", 400)
 		return
 	}
-	if argument == "get_sso_id" {
+	if method == "get_sso_id" {
 		if useCompatibility {
 			c.Redirect(302, common.GetApiUrl(c.Request)+"/@manage?sso_id="+userID)
 			return
@@ -242,7 +247,7 @@ func OIDCLoginCallback(c *gin.Context) {
 		c.Data(200, "text/html; charset=utf-8", []byte(html))
 		return
 	}
-	if argument == "sso_get_token" {
+	if method == "sso_get_token" {
 		user, err := db.GetUserBySSOID(userID)
 		if err != nil {
 			user, err = autoRegister(userID, userID, err)
