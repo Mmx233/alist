@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"github.com/alist-org/alist/v3/pkg/utils"
 	"io"
 	"math"
 	"net/http"
@@ -12,6 +11,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/alist-org/alist/v3/pkg/utils"
 
 	"github.com/alist-org/alist/v3/pkg/http_range"
 	"github.com/aws/aws-sdk-go/aws/awsutil"
@@ -168,6 +169,7 @@ func (d *downloader) sendChunkTask() *chunk {
 
 // when the final reader Close, we interrupt
 func (d *downloader) interrupt() error {
+
 	d.cancel()
 	if d.written != d.params.Range.Length {
 		log.Debugf("Downloader interrupt before finish")

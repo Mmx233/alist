@@ -101,17 +101,17 @@ func (d *Local) List(ctx context.Context, dir model.Obj, args model.ListArgs) ([
 		if !d.ShowHidden && strings.HasPrefix(f.Name(), ".") {
 			continue
 		}
-		file := d.FileInfoToObj(f, args.ReqPath, fullPath)
+		file := d.FileInfoToObj(ctx, f, args.ReqPath, fullPath)
 		files = append(files, file)
 	}
 	return files, nil
 }
-func (d *Local) FileInfoToObj(f fs.FileInfo, reqPath string, fullPath string) model.Obj {
+func (d *Local) FileInfoToObj(ctx context.Context, f fs.FileInfo, reqPath string, fullPath string) model.Obj {
 	thumb := ""
 	if d.Thumbnail {
 		typeName := utils.GetFileType(f.Name())
 		if typeName == conf.IMAGE || typeName == conf.VIDEO {
-			thumb = common.GetApiUrl(nil) + stdpath.Join("/d", reqPath, f.Name())
+			thumb = common.GetApiUrl(common.GetHttpReq(ctx)) + stdpath.Join("/d", reqPath, f.Name())
 			thumb = utils.EncodePath(thumb, true)
 			thumb += "?type=thumb&sign=" + sign.Sign(stdpath.Join(reqPath, f.Name()))
 		}
@@ -149,7 +149,7 @@ func (d *Local) GetMeta(ctx context.Context, path string) (model.Obj, error) {
 	if err != nil {
 		return nil, err
 	}
-	file := d.FileInfoToObj(f, path, path)
+	file := d.FileInfoToObj(ctx, f, path, path)
 	//h := "123123"
 	//if s, ok := f.(model.SetHash); ok && file.GetHash() == ("","")  {
 	//	s.SetHash(h,"SHA1")
@@ -280,7 +280,7 @@ func (d *Local) Copy(_ context.Context, srcObj, dstDir model.Obj) error {
 	return cp.Copy(srcPath, dstPath, cp.Options{
 		Sync:          true, // Sync file to disk after copy, may have performance penalty in filesystem such as ZFS
 		PreserveTimes: true,
-		NumOfWorkers:  0, // Serialized copy without using goroutine
+		PreserveOwner: true,
 	})
 }
 
